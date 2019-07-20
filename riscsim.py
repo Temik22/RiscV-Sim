@@ -18,10 +18,12 @@ class Answer:
 
 class startStatus:
     debug = False
+    steps = -1
     startLabel = ''
 
-    def __init__(self, debug, label):
+    def __init__(self, debug, label, steps=-1):
         self.debug = debug
+        self.steps = steps
         self.startLabel = label
 
 
@@ -47,6 +49,7 @@ class Machine:
     # class of simulator that is needed for changing machine status
     registers = {}
     memory = []
+    stack = []
 
 
 class File:
@@ -72,12 +75,18 @@ def simInit():
     return machine
 
 
+def getAleternativeName(name):
+    for key, value in altRegNames.items():
+        if value == name:
+            return key
+
+
 def printRegisters(machine):
     # print out current situation of registers
     temp = []
     for key, value in machine.registers.items():
         string = ''
-        string += key
+        string += '{0}({1})'.format(getAleternativeName(key), key)
         string += ': '
         string += str(value)
         temp.append(string)
@@ -158,37 +167,65 @@ def memoryAdd(machine, string, readOnly):
     values = [int(i.strip()) for i in values]
     for value in values:
         if param == '.word':
-            piece1 = MemoryByte(value // 256, readOnly)
-            piece2 = MemoryByte(value / 256, readOnly)
-            piece3 = MemoryByte(value / (256 * 256), readOnly)
-            piece4 = MemoryByte(value / (256 * 256 * 256), readOnly)
+            piece1 = MemoryByte(value % 256, readOnly)
+            piece2 = MemoryByte(value // 256, readOnly)
+            piece3 = MemoryByte(value // (256 * 256), readOnly)
+            piece4 = MemoryByte(value // (256 * 256 * 256), readOnly)
             machine.memory.append(piece1)
             machine.memory.append(piece2)
             machine.memory.append(piece3)
             machine.memory.append(piece4)
-        elif param == '.int':
-            piece1 = MemoryByte(value // 256, readOnly)
-            piece2 = MemoryByte(value / 256, readOnly)
+        elif param == '.half':
+            piece1 = MemoryByte(value % 256, readOnly)
+            piece2 = MemoryByte(value // 256, readOnly)
             machine.memory.append(piece1)
             machine.memory.append(piece2)
         elif param == '.byte':
-            piece1 = MemoryByte(value // 256, readOnly)
+            piece1 = MemoryByte(value % 256, readOnly)
             machine.memory.append(piece1)
     print('{0}, {1}'.format(name, start))
     return answerFromMem(name, start)
 
 
-def performInstructions(machine, marks, instructions, startStatus):
+def performInstructions(machine, file, start):
     # Think about end point that stops simulation
     end = False
-    current = marks.get(startStatus.startLabel)
+    current = file.names.get(start.startLabel)
+    simStatus = Answer()
     while not end:
-        line = instructions[current]
+        line = file.instructions[current]
         command = line.split(' ')[0]
         line = line[len(command):].split(',')
         line = [i.strip() for i in line]
         print('{0} : {1}'.format(command, line))
-        if command == 'lw':
+        if command == 'la':
+            setRegValue(machine, line[0], file.memLabels[line[1]])
+
+        elif command == 'lw' or command == 'lh' or command == 'lb':
+            i = 0
+            while line[1][i] != '(':
+                i += 1
+            delta = int(line[1][:i])
+            register = line[1][i + 1:len(line[1]) - 1]
+            result = 0
+            if command == 'lw':
+                for i in reversed(range(1, 4)):
+                    result += machine.memory[getRegValue(
+                        machine, register) + delta + i].value
+                    result *= 256
+                result += machine.memory[getRegValue(
+                    machine, register) + delta].value
+            elif command == 'lh':
+                result += machine.memory[getRegValue(
+                    machine, register) + delta + 1].value * 256
+                result += machine.memory[getRegValue(
+                    machine, register) + delta].value
+            else:
+                result += machine.memory[getRegValue(
+                    machine, register) + delta].value
+            setRegValue(machine, line[0], result)
+
+        elif command == 'li':
             setRegValue(machine, line[0], int(line[1]))
 
         elif command == 'add':
@@ -196,12 +233,9 @@ def performInstructions(machine, marks, instructions, startStatus):
                 machine, line[1]) + getRegValue(machine, line[2])
             setRegValue(machine, line[0], result)
 
-        # I think it must be rewrited with find()
-        # add and addi have same function but different arguments
-        #
-        # elif command == 'addi':
-        #     result = getRegValue(machine, line[1]) + int(line[2])
-        #     setRegValue(machine, line[0], result)
+        elif command == 'addi':
+            result = getRegValue(machine, line[1]) + int(line[2])
+            setRegValue(machine, line[0], result)
 
         elif command == 'sub':
             result = getRegValue(
@@ -234,32 +268,34 @@ def performInstructions(machine, marks, instructions, startStatus):
             setRegValue(machine, line[0], result)
 
         elif command == 'j':
-            if marks.get(line[0]) != None:
-                current = marks[line[0]] - 1
+            if file.names.get(line[0]) != None:
+                current = file.names[line[0]] - 1
             else:
-                print('jump error')
+                simStatus.status = 'error'
+                simStatus.value = 'jump error'
+                break
 
         elif command == 'beq':
             if getRegValue(machine, line[0]) == getRegValue(machine, line[1]):
-                current = marks[line[2]] - 1
+                current = file.names[line[2]] - 1
             else:
                 continue
 
         elif command == 'bne':
             if getRegValue(machine, line[0]) != getRegValue(machine, line[1]):
-                current = marks[line[2]] - 1
+                current = file.names[line[2]] - 1
             else:
                 continue
 
         elif command == 'bge':
             if getRegValue(machine, line[0]) >= getRegValue(machine, line[1]):
-                current = marks[line[2]] - 1
+                current = file.names[line[2]] - 1
             else:
                 continue
 
         elif command == 'blt':
             if getRegValue(machine, line[0]) < getRegValue(machine, line[1]):
-                current = marks[line[2]] - 1
+                current = file.names[line[2]] - 1
             else:
                 continue
 
@@ -267,9 +303,13 @@ def performInstructions(machine, marks, instructions, startStatus):
             print('command not found')
 
         current += 1
+        start.steps -= 1
 
-        if current == len(instructions):
+        if current == len(file.instructions) or start.steps == 0:
+            simStatus.status = 'success'
+            simStatus.value = 'simulation was finished'
             end = True
+    return simStatus
 
 
 def getRegValue(machine, name):
@@ -302,7 +342,10 @@ def main():
     file = parseFile('temp.s')
     parseDirectives(machine, file)
     start = startStatus(False, 'main')
-    performInstructions(machine, file.names, file.instructions, start)
+    result = performInstructions(machine, file, start)
+    print('Status: {0}\nDescription: {1}'.format(result.status, result.value))
+    for i in machine.memory:
+        print(i.value)
     printRegisters(machine)
     # count = file.names['swap']
     # print(file.instructions[count])
