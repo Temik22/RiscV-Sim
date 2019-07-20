@@ -11,9 +11,9 @@ altRegNames = {'zero': 'x0', 'ra': 'x1', 'sp': 'x2', 'gp': 'x3', 'tp': 'x4', 't0
                's8': 'x24', 's9': 'x25', 's10': 'x26', 's11': 'x27', 't3': 'x28', 't4': 'x29', 't5': 'x30', 't6': 'x31'}
 
 
-class machineAnswer:
-    name = ''
+class Answer:
     status = ''
+    value = ''
 
 
 class startStatus:
@@ -46,8 +46,7 @@ class MemoryByte:
 class Machine:
     # class of simulator that is needed for changing machine status
     registers = {}
-    memory = {}
-    last_mem_byte = 0
+    memory = []
 
 
 class File:
@@ -128,28 +127,55 @@ def parseFile(name):
 
 def parseDirectives(machine, file):
     # .data and .rodata were made
-    settings = []
     for i in range(len(file.directives)):
-        n = file.directives[i].find('.data')
-        m = file.directives[i].find('.rodata')
-        if n != -1:
+        data = file.directives[i].find('.data')
+        rodata = file.directives[i].find('.rodata')
+        if data != -1:
             for j in range(i + 1, len(file.directives)):
                 if file.directives[j].startswith('.'):
                     break
-                settings.append(memoryAdd(machine, file.directives[j], False))
-        if m != -1:
+                answer = memoryAdd(machine, file.directives[j], False)
+                file.memLabels[answer.name] = answer.startValue
+        if rodata != -1:
             for j in range(i + 1, len(file.directives)):
                 if file.directives[j].startswith('.'):
                     break
-                settings.append(memoryAdd(machine, file.directives[j], True))
+                answer = memoryAdd(machine, file.directives[j], True)
+                file.memLabels[answer.name] = answer.startValue
 
 
-def memoryAdd(machine, string, type):
+def memoryAdd(machine, string, readOnly):
     # TODO()
+    start = len(machine.memory)
     temp = string.split(':')
+    name = temp[0]
     temp[1] = temp[1].strip()
-    print(temp)
-    return temp[0]
+    i = 0
+    while temp[1][i] != ' ':
+        i += 1
+    param = temp[1][:i]
+    values = temp[1][i:].split(',')
+    values = [int(i.strip()) for i in values]
+    for value in values:
+        if param == '.word':
+            piece1 = MemoryByte(value // 256, readOnly)
+            piece2 = MemoryByte(value / 256, readOnly)
+            piece3 = MemoryByte(value / (256 * 256), readOnly)
+            piece4 = MemoryByte(value / (256 * 256 * 256), readOnly)
+            machine.memory.append(piece1)
+            machine.memory.append(piece2)
+            machine.memory.append(piece3)
+            machine.memory.append(piece4)
+        elif param == '.int':
+            piece1 = MemoryByte(value // 256, readOnly)
+            piece2 = MemoryByte(value / 256, readOnly)
+            machine.memory.append(piece1)
+            machine.memory.append(piece2)
+        elif param == '.byte':
+            piece1 = MemoryByte(value // 256, readOnly)
+            machine.memory.append(piece1)
+    print('{0}, {1}'.format(name, start))
+    return answerFromMem(name, start)
 
 
 def performInstructions(machine, marks, instructions, startStatus):
@@ -244,8 +270,6 @@ def performInstructions(machine, marks, instructions, startStatus):
 
         if current == len(instructions):
             end = True
-
-
 
 
 def getRegValue(machine, name):
