@@ -21,7 +21,7 @@ class startStatus:
     steps = -1
     startLabel = ''
 
-    def __init__(self, debug, label, steps=-1):
+    def __init__(self, debug, label, steps):
         self.debug = debug
         self.steps = steps
         self.startLabel = label
@@ -183,7 +183,6 @@ def memoryAdd(machine, string, readOnly):
         elif param == '.byte':
             piece1 = MemoryByte(value % 256, readOnly)
             machine.memory.append(piece1)
-    print('{0}, {1}'.format(name, start))
     return answerFromMem(name, start)
 
 
@@ -192,7 +191,31 @@ def performInstructions(machine, file, start):
     end = False
     current = file.names.get(start.startLabel)
     simStatus = Answer()
+    print('Start simulation ...')
+    tempDebug = False
+    if start.debug:
+        print(
+            'Simulation was started in debug mode.\
+            \nPrint [s] for perform one instruction,\
+ [c] for perform all instructions.\
+            \nPrint [print] for registers values')
+        tempDebug = True
     while not end:
+        if tempDebug:
+            while True:
+                action = input().strip()
+                if action == 's':
+                    break
+                elif action == 'c':
+                    tempDebug = False
+                    break
+                elif action == 'print':
+                    printRegisters(machine)
+                    continue
+                else:
+                    print('command not found. try again ...')
+                    continue
+
         line = file.instructions[current]
         command = line.split(' ')[0]
         line = line[len(command):].split(',')
@@ -272,7 +295,8 @@ def performInstructions(machine, file, start):
                 current = file.names[line[0]] - 1
             else:
                 simStatus.status = 'error'
-                simStatus.value = 'jump error'
+                simStatus.value = 'jump error: no such label [{}]'.format(
+                    line[0])
                 break
 
         elif command == 'beq':
@@ -300,7 +324,9 @@ def performInstructions(machine, file, start):
                 continue
 
         else:
-            print('command not found')
+            simStatus.status = 'error'
+            simStatus.value = 'command not found [{}]'.format(command)
+            break
 
         current += 1
         start.steps -= 1
@@ -332,25 +358,47 @@ def setRegValue(machine, name, value):
 
 def createParser():
     # TODO()
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-debug', action="store_const", const=True)
+    parser = argparse.ArgumentParser(description='Python based Risc V simulator',
+                                     epilog='(c) Memaster 2019 alpha 1.0',
+                                     add_help=True)
+    parser.add_argument('-d', '--debug', action="store_true",
+                        help='switch simulator in debug mode')
+    parser.add_argument('-i', '--info', action='store_true',
+                        help='print registers before end of work')
+    parser.add_argument('-s', '--steps', type=int,
+                        help='it\'s a number of steps before simulation will be stoped')
+    parser.add_argument(
+        '-b', '--begin', help='name of label from which simulation starts. default value: main')
+    parser.add_argument('fileName', nargs='?',
+                        help='name of file (*.s) with instructions')
     return parser
 
 
 def main():
-    machine = simInit()
-    file = parseFile('temp.s')
-    parseDirectives(machine, file)
-    start = startStatus(False, 'main')
-    result = performInstructions(machine, file, start)
-    print('Status: {0}\nDescription: {1}'.format(result.status, result.value))
-    for i in machine.memory:
-        print(i.value)
-    printRegisters(machine)
-    # count = file.names['swap']
-    # print(file.instructions[count])
-    # parser = createParser()
-    # params = parser.parse_args(sys.argv[1:])
+    parser = createParser()
+    params = parser.parse_args(sys.argv[1:])
+    if params.fileName:
+        debug = False
+        steps = -1
+        begin = 'main'
+        machine = simInit()
+        file = parseFile(params.fileName)
+        parseDirectives(machine, file)
+        if params.steps:
+            steps = params.steps
+        if params.debug:
+            debug = True
+            steps = -1
+        if params.begin:
+            begin = params.begin
+        start = startStatus(debug, begin, steps)
+        result = performInstructions(machine, file, start)
+        if params.info:
+            printRegisters(machine)
+        print('Status: {0}\nDescription: {1}'.format(
+            result.status, result.value))
+    else:
+        print('Status: error\nDescription: file name was not specified')
 
 
 main()
